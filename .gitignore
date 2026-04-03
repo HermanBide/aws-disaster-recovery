@@ -1,0 +1,12 @@
+# Local terraform directory
+.terraform/
+
+# State files
+*.tfstate
+*.tfstate.backup
+
+# Variables file (if it contains secrets)
+*.tfvars
+
+# Strategy files
+.terraform.lock.hcl

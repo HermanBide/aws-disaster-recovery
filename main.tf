@@ -118,16 +118,16 @@ resource "aws_vpc" "primary" {
   }
 }
 
-resource "aws_vpc" "secondary" {
-  provider = aws.secondary
-  cidr_block           = "10.1.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+# resource "aws_vpc" "secondary" {
+#   provider = aws.secondary
+#   cidr_block           = "10.1.0.0/16"
+#   enable_dns_hostnames = true
+#   enable_dns_support   = true
 
-    tags = {
-    Name = "${var.project_name}-secondary-vpc"
-  }
-}
+#     tags = {
+#     Name = "${var.project_name}-secondary-vpc"
+#   }
+# }
 
 # IGW
 resource "aws_internet_gateway" "igw_primary" {
@@ -197,7 +197,7 @@ resource "aws_route_table_association" "primary_public_2" {
 
 resource "aws_vpc" "secondary" {
   provider             = aws.secondary
-  cidr_block           = "10.2.0.0/16"
+  cidr_block           = "10.1.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -206,7 +206,7 @@ resource "aws_vpc" "secondary" {
   }
 }
 
-resource "aws_internet_gateway" "secondary" {
+resource "aws_internet_gateway" "igw_secondary" {
   provider = aws.secondary
   vpc_id   = aws_vpc.secondary.id
 
@@ -218,7 +218,7 @@ resource "aws_internet_gateway" "secondary" {
 resource "aws_subnet" "secondary_public_1" {
   provider                = aws.secondary
   vpc_id                  = aws_vpc.secondary.id
-  cidr_block              = "10.2.1.0/24"
+  cidr_block              = "10.1.1.0/24"
   availability_zone       = data.aws_availability_zones.secondary.names[0]
   map_public_ip_on_launch = true
 
@@ -230,7 +230,7 @@ resource "aws_subnet" "secondary_public_1" {
 resource "aws_subnet" "secondary_public_2" {
   provider                = aws.secondary
   vpc_id                  = aws_vpc.secondary.id
-  cidr_block              = "10.2.2.0/24"
+  cidr_block              = "10.1.2.0/24"
   availability_zone       = data.aws_availability_zones.secondary.names[1]
   map_public_ip_on_launch = true
 
@@ -245,7 +245,7 @@ resource "aws_route_table" "secondary_public" {
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.secondary.id
+    gateway_id = aws_internet_gateway.igw_secondary.id
   }
 
   tags = {

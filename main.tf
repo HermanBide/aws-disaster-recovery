@@ -15,9 +15,9 @@ terraform {
   required_version = ">= 1.0"
 }
 
-# ==============================================================================================================
+# ===============================================================================================
 # Providers - multi-Region setup
-# ==============================================================================================================
+# ===============================================================================================
 provider "aws" {
   alias  = "primary"
   region = "us-west-1"
@@ -44,9 +44,9 @@ provider "aws" {
   }
 }
 
-# ========================================================================================================
+# ==========================================================================================
 # Data Source
-# ========================================================================================================
+# ==========================================================================================
 
 # Get availability zones - primary region
 data "aws_availability_zones" "primary" {
@@ -98,14 +98,16 @@ data "aws_ami" "amazon_linux_secondary" {
 }
 
 # route 53 to direct traffic
-resource "aws_route53_zone" "main" {
+data "aws_route53_zone" "main" {
   provider = aws.primary
-  name = var.domain_name
+  # name = "${var.domain_name}."
+  # name = "awsHerman.shop"
+  zone_id = "Z06986971MV6ZWHFWFN86"
 }
 
-# ==============================================================================================================
+# ==========================================================================================
 # VPC - PRIMARY REGION (us-west-1)
-# ==================================================================================================================
+# ==========================================================================================
 
 resource "aws_vpc" "primary" {
   provider = aws.primary
@@ -402,14 +404,14 @@ resource "aws_instance" "ec2_primary" {
   subnet_id              = aws_subnet.primary_public_1.id
   vpc_security_group_ids = [aws_security_group.sg_ec2_primary.id]
 
-  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
+  user_data = templatefile("${path.module}/user_data.sh", {
     region      = "us-west-1"
     region_name = "N. California"
     role        = "PRIMARY"
     role_color  = "#1a5f2a"
     badge_color = "#FFD700"
     text_color  = "#90EE90"
-  }))
+  })
 
   tags = {
     Name = "${var.project_name}-primary-web"
@@ -417,7 +419,7 @@ resource "aws_instance" "ec2_primary" {
 }
 
 # Application Load Balancer - Primary
-resource "aws_lb" "primary" {
+resource "aws_lb" "lb_primary" {
   provider           = aws.primary
   name               = "${var.project_name}-primary-alb"
   internal           = false
@@ -459,18 +461,18 @@ resource "aws_lb_target_group" "primary" {
 resource "aws_lb_target_group_attachment" "primary" {
   provider         = aws.primary
   target_group_arn = aws_lb_target_group.primary.arn
-  target_id        = aws_instance.primary.id
+  target_id        = aws_instance.ec2_primary.id
   port             = 80
 }
 
 # ALB Listener - HTTPS (Primary)
 resource "aws_lb_listener" "primary_https" {
   provider          = aws.primary
-  load_balancer_arn = aws_lb.primary.arn
+  load_balancer_arn = aws_lb.lb_primary.arn
   port              = "443"
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate_validation.primary.certificate_arn
+  certificate_arn   = aws_acm_certificate_validation.acm_validate_primary.certificate_arn
 
   default_action {
     type             = "forward"
@@ -481,7 +483,175 @@ resource "aws_lb_listener" "primary_https" {
 # ALB Listener - HTTP Redirect (Primary)
 resource "aws_lb_listener" "primary_http" {
   provider          = aws.primary
-  load_balancer_arn = aws_lb.primary.arn
+  load_balancer_arn = aws_lb.lb_primary.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# =============================================================================
+# SECONDARY REGION - Security Groups, EC2, ALB
+# =============================================================================
+
+# Security Group - ALB (Secondary)
+resource "aws_security_group" "alb_secondary" {
+  provider    = aws.secondary
+  name        = "${var.project_name}-secondary-alb-sg"
+  description = "Security group for Secondary ALB"
+  vpc_id      = aws_vpc.secondary.id
+
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-secondary-alb-sg"
+  }
+}
+
+# Security Group - EC2 (Secondary)
+resource "aws_security_group" "ec2_secondary" {
+  provider    = aws.secondary
+  name        = "${var.project_name}-secondary-ec2-sg"
+  description = "Security group for Secondary EC2"
+  vpc_id      = aws_vpc.secondary.id
+
+  ingress {
+    description     = "HTTP from ALB"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_secondary.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-secondary-ec2-sg"
+  }
+}
+
+# EC2 Instance - Secondary
+resource "aws_instance" "ec2_secondary" {
+  provider               = aws.secondary
+  ami                    = data.aws_ami.amazon_linux_secondary.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.secondary_public_1.id
+  vpc_security_group_ids = [aws_security_group.ec2_secondary.id]
+
+  user_data = templatefile("${path.module}/user_data.sh", {
+    region      = "us-east-1"
+    region_name = "N. Virginia"
+    role        = "SECONDARY"
+    role_color  = "#8B0000"
+    badge_color = "#FFA500"
+    text_color  = "#FFB6C1"
+  })
+
+  tags = {
+    Name = "${var.project_name}-secondary-web"
+  }
+}
+
+# Application Load Balancer - Secondary
+resource "aws_lb" "lb_secondary" {
+  provider           = aws.secondary
+  name               = "${var.project_name}-secondary-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_secondary.id]
+  subnets            = [aws_subnet.secondary_public_1.id, aws_subnet.secondary_public_2.id]
+
+  tags = {
+    Name = "${var.project_name}-secondary-alb"
+  }
+}
+
+# Target Group - Secondary
+resource "aws_lb_target_group" "secondary" {
+  provider = aws.secondary
+  name     = "${var.project_name}-secondary-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.secondary.id
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    interval            = 30
+    matcher             = "200"
+    path                = "/health"
+    port                = "traffic-port"
+    protocol            = "HTTP"
+    timeout             = 5
+    unhealthy_threshold = 2
+  }
+
+  tags = {
+    Name = "${var.project_name}-secondary-tg"
+  }
+}
+
+# Target Group Attachment - Secondary
+resource "aws_lb_target_group_attachment" "secondary" {
+  provider         = aws.secondary
+  target_group_arn = aws_lb_target_group.secondary.arn
+  target_id        = aws_instance.ec2_secondary.id
+  port             = 80
+}
+
+# ALB Listener - HTTPS (Secondary)
+resource "aws_lb_listener" "secondary_https" {
+  provider          = aws.secondary
+  load_balancer_arn = aws_lb.lb_secondary.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.acm_validate_secondary.certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.secondary.arn
+  }
+}
+
+# ALB Listener - HTTP Redirect (Secondary)
+resource "aws_lb_listener" "secondary_http" {
+  provider          = aws.secondary
+  load_balancer_arn = aws_lb.lb_secondary.arn
   port              = "80"
   protocol          = "HTTP"
 

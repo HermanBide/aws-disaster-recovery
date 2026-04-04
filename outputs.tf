@@ -57,7 +57,7 @@ output "secondary_ec2_id" {
 }
 
 # Route 53 Outputs
-# output "health_check_id" {
-#   description = "Route 53 health check ID"
-#   value       = aws_route53_health_check.primary.id
-# }
+output "health_check_id" {
+  description = "Route 53 health check ID"
+  value       = aws_route53_health_check.primary.id
+}
